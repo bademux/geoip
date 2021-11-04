@@ -1,0 +1,17 @@
+{{- $ports := .Files.Get "ports.json" | fromJson -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "geoip.fullname" . }}
+  labels:
+    {{- include "geoip.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: api-service
+      port:  {{ $ports.apiPort }}
+      protocol: TCP
+    - name: admin-service
+      port:  {{ $ports.adminPort }}
+      protocol: TCP
+  selector:
+    {{- include "geoip.selectorLabels" . | nindent 4 }}

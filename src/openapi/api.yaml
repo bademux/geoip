@@ -1,0 +1,72 @@
+openapi: 3.0.3
+info:
+  title: GeoIP API
+  version: "0.1"
+  description: test project that just increase entropy
+
+servers:
+  - url: /api
+
+paths:
+  /v1/northcountries:
+    get:
+      tags: [ northcountries-v1 ]
+      operationId: get-northcountries-for-ips
+      summary: Returns list of countries from the northern hemisphere for the IPs
+      parameters:
+        - in: query
+          name: ip
+          required: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            items:
+              format: ipv4
+          description: IPs that should be checked
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Northcountries'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+
+components:
+  responses:
+    BadRequestError:
+      description: error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      required: [ id, code, timestamp ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique error ID, used for logging purposes, UUID format
+        code:
+          type: string
+          description: A string coding the error type. This is given to caller so he can translate them if required.
+        timestamp:
+          type: string
+          format: date-time
+          description: Exact time of error
+        message:
+          type: string
+          description: A short localized string that describes the error.
+    Northcountries:
+      title: Northcountries
+      type: object
+      required: [ northcountries ]
+      properties:
+        northcountries:
+          type: array
+          items:
+            type: string

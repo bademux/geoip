@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="LOGBACK_APPENDER" source="app.log-appender" defaultValue="json"/>
+    <conversionRule conversionWord="stack"
+                    converterClass="net.logstash.logback.stacktrace.ShortenedThrowableConverter"/>
+    <appender name="console-docker" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%logger{15} - %replace(%msg){'[\r\n]+', '\\r'}%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %logger{15} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="info">
+        <appender-ref ref="${LOGBACK_APPENDER}"/>
+    </root>
+</configuration>

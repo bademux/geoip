@@ -1,0 +1,82 @@
+{{- $ports := .Files.Get "ports.json" | fromJson -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "geoip.fullname" . }}
+  labels:
+  {{- include "geoip.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+  {{- include "geoip.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: {{ include "geoip.chart" . }}
+    {{- include "geoip.selectorLabels" . | nindent 8 }}
+    spec:
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            medium: Memory
+      securityContext:
+      {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Files.Get "jib-image.json" | fromJson }}
+          image: "{{ .image }}@{{ .imageDigest }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.serviceAccountName
+          ports:
+            - name: api
+              containerPort: {{ $ports.apiPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ $ports.adminPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/livenessState
+              port: admin
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readinessState
+              port: admin
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+            successThreshold: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+          resources:
+  {{- toYaml .Values.resources | nindent 12 }}

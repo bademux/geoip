@@ -1,0 +1,24 @@
+{
+  "id" : "a138086d-e185-4f00-be0e-992644b47147",
+  "name" : "80942240",
+  "request" : {
+    "url" : "/80.94.224.0?output=json&fields=country_name&access_key=ACCESS_KEY",
+    "method" : "GET"
+  },
+  "response" : {
+    "status" : 200,
+    "body" : "{\"country_name\": \"Belarus\"}",
+    "headers" : {
+      "content-type" : "application/json",
+      "date" : "Fri, 05 Nov 2021 14:52:00 GMT",
+      "x-apilayer-transaction-id" : "56ff3cc1-0828-468c-839f-d7cc054a1226",
+      "x-quota-limit" : "100",
+      "x-quota-remaining" : "72",
+      "x-increment-usage" : "1",
+      "x-request-time" : "0.041"
+    }
+  },
+  "uuid" : "a138086d-e185-4f00-be0e-992644b47147",
+  "persistent" : true,
+  "insertionIndex" : 3
+}

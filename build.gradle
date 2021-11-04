@@ -1,0 +1,258 @@
+plugins {
+    id 'application'
+    id 'groovy'
+    id 'jacoco'
+    id 'org.openapi.generator' version '5.3.0'
+    id 'com.google.cloud.tools.jib' version '3.0.0'
+    id 'com.palantir.git-version' version '0.12.3'
+    id 'org.unbroken-dome.helm' version '1.6.1'
+}
+
+repositories {
+    mavenCentral()
+}
+
+def git = versionDetails(prefix: 'v@')
+
+def lastTag = git.lastTag.startsWith('v@') ? git.lastTag : '0.0'
+version "${lastTag}.${git.commitDistance}-${git.gitHash}" as String
+
+compileJava {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+run {
+    enableAssertions = true
+    args '--spring.profiles.active=local-dev' //use application-local-dev.properties
+}
+
+configurations {
+    springBom
+
+    annotationProcessor.extendsFrom springBom
+    compileOnly.extendsFrom springBom
+    implementation.extendsFrom springBom
+
+    testBase.extendsFrom springBom
+
+    testImplementation.extendsFrom testBase, implementation
+    testAnnotationProcessor.extendsFrom annotationProcessor
+    testCompileOnly.extendsFrom testAnnotationProcessor
+
+    integrationTestImplementation.extendsFrom testBase, implementation
+    integrationTestAnnotationProcessor.extendsFrom annotationProcessor, springBom
+    integrationTestCompileOnly.extendsFrom integrationTestAnnotationProcessor, springBom
+
+    acceptanceTestImplementation.extendsFrom testBase
+    acceptanceTestAnnotationProcessor.extendsFrom springBom
+    acceptanceTestCompileOnly.extendsFrom(acceptanceTestAnnotationProcessor, springBom)
+}
+
+sourceSets {
+    generatedSpringRestApi {
+        resources.srcDirs = ['src/openapi']
+    }
+    main {
+        java.srcDirs += generatedSpringRestApi.java.srcDirs
+    }
+    integrationTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+    acceptanceTest
+}
+
+dependencies {
+    springBom enforcedPlatform("org.springframework.boot:spring-boot-dependencies:$springBootVersion")
+
+    compileOnly group: 'io.swagger', name: 'swagger-annotations', version: swaggerAnnotationsVersion
+
+    compileOnly group: 'org.projectlombok', name: 'lombok'
+    annotationProcessor group: 'org.projectlombok', name: 'lombok'
+    annotationProcessor group: 'org.springframework', name: 'spring-context-indexer'
+
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-web'
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-validation'
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-actuator'
+    implementation group: 'org.slf4j', name: 'jul-to-slf4j'
+    implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jsr310'
+    implementation group: 'org.webjars', name: 'webjars-locator-core'
+    implementation group: 'org.webjars', name: 'swagger-ui', version: swaggerVersion
+
+    testBase enforcedPlatform(group: 'org.spockframework', name: 'spock-bom', version: spockVersion)
+    testBase group: 'org.spockframework', name: 'spock-core'
+    testBase group: 'org.codehaus.groovy', name: 'groovy-json'
+
+    integrationTestImplementation group: 'com.github.tomakehurst', name: 'wiremock-jre8', version: wiremockVersion
+
+    acceptanceTestAnnotationProcessor group: 'org.projectlombok', name: 'lombok'
+    acceptanceTestImplementation enforcedPlatform(group: 'org.testcontainers', name: 'testcontainers-bom', version: testcontainersVersion)
+    acceptanceTestImplementation group: 'ch.qos.logback', name: 'logback-classic'
+    acceptanceTestImplementation group: 'org.slf4j', name: 'jcl-over-slf4j'
+    acceptanceTestImplementation group: 'org.slf4j', name: 'jul-to-slf4j'
+    acceptanceTestImplementation group: 'org.testcontainers', name: 'testcontainers'
+    acceptanceTestImplementation group: 'com.github.tomakehurst', name: 'wiremock-jre8', version: wiremockVersion
+    acceptanceTestImplementation group: 'commons-logging', name: 'commons-logging', version: commonsLoggingVersion
+
+}
+
+application {
+    mainClass.set('com.github.bademux.geoip.Application')
+}
+
+openApiGenerate {
+    generatorName = 'spring'
+    inputSpec = sourceSets.generatedSpringRestApi.resources.srcDirs.collect({ it.listFiles() }).flatten().first() as String
+    outputDir = sourceSets.generatedSpringRestApi.java.srcDirs.first() as String
+    apiFilesConstrainedTo = ['']
+    modelFilesConstrainedTo = ['']
+    apiPackage = "${project.group}.${project.name}.api"
+    modelPackage = "${project.group}.${project.name}.api.dto"
+    modelNameSuffix = 'ApiDto'
+    configOptions = [
+            library                : 'spring-mvc',
+            sourceFolder           : '',
+            skipOverwrite          : false,
+            skipDefaultInterface   : true,
+            interfaceOnly          : true,
+            useTags                : true,
+            hideGenerationTimestamp: true,
+    ].collectEntries { [it.key, it.value as String] }
+    additionalProperties = [
+            useSpringfox   : false,
+            openApiNullable: false,
+    ].collectEntries { [it.key, it.value as String] }
+}
+tasks.compileJava.dependsOn tasks.openApiGenerate
+
+openApiValidate {
+    inputSpec = openApiGenerate.inputSpec.get()
+}
+tasks.check.dependsOn tasks.openApiValidate
+
+def dockerPorts = [apiPort: 8080, adminPort: 8090]
+jib {
+    //check digest: docker inspect --format='{{index .RepoDigests 0}}' gcr.io/distroless/java:11
+    //image with bash onboard for debug purposes is 'gcr.io/distroless/java:11-debug'
+    from.image = 'gcr.io/distroless/java@sha256:1d377403a44d32779be00fceec4803be0301c7f4a62b72d7307dc411860c24c3'
+
+    project.logger.info "Configured $from.image base image"
+
+    to {
+        image = "myregistry/${project.group.replace('.', '/')}/$project.name"
+        tags = ['latest', project.version, git.lastTag].findAll(Objects.&nonNull) as Set<String>
+    }
+
+    container {
+        mainClass = application.mainClass.get()
+        //TODO: to be revisited before release
+        jvmFlags = ['-XshowSettings:vm', // '-XX:+PrintFlagsFinal', '-Xlog:gc*=info:stdout:time,uptimemillis,tid',
+                    '-XX:MaxRAMPercentage=75', '-XX:+UseG1GC',
+                    '-Djava.awt.headless=true',
+                    '-Djava.security.egd=file:/dev/urandom', '-XX:+ExitOnOutOfMemoryError'// '-XX:+HeapDumpOnOutOfMemoryError', '-XX:HeapDumpPath=/data/heapdump.`date`.hprof',
+        ]
+        args = ["--server.port=$dockerPorts.apiPort", "--management.server.port=$dockerPorts.adminPort",
+                '--spring.config.location=/app/resources/application.properties',
+        ].collect(Objects.&toString)
+        ports = dockerPorts.values().collect(String.&valueOf) as List<String>
+        labels = [name: project.name, group: project.group, version: project.version, commitId: git.gitHashFull] as Map<String, String>
+        user = 'nonroot'
+        containerizingMode = 'exploded'
+        creationTime = 'EPOCH'
+        format = 'OCI'
+    }
+}
+
+
+processResources {
+    with copySpec {
+        from sourceSets.generatedSpringRestApi.resources.srcDirs
+        into 'static'
+    }
+}
+
+task writeProperties(type: WriteProperties) {
+    outputFile new File(sourceSets.main.output.resourcesDir, 'info.properties')
+    property 'version', project.version
+    property 'commitId', git.gitHashFull
+    property 'group', project.group
+    property 'name', project.name
+}
+tasks.processResources.dependsOn writeProperties
+
+test {
+    maxParallelForks = Runtime.runtime.availableProcessors()
+}
+
+task integrationTest(type: Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    maxParallelForks = Runtime.runtime.availableProcessors()
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    shouldRunAfter tasks.test
+}
+check.dependsOn integrationTest
+
+task acceptanceTest(type: Test, dependsOn: tasks.jibDockerBuild) {
+    description = 'Runs acceptance tests.'
+    group = 'verification'
+    maxParallelForks = Runtime.runtime.availableProcessors() > 1 ? 2 : 1
+    failFast = true //save time by stop running if one already failed
+    testClassesDirs = sourceSets.acceptanceTest.output.classesDirs
+    classpath = sourceSets.acceptanceTest.runtimeClasspath
+    environment 'DOCKER_NAME', "${jib.to.image}:$project.version"
+    doFirst {
+        project.logger.info "acceptanceTest run for '${environment.DOCKER_NAME}'"
+    }
+    shouldRunAfter tasks.integrationTest
+}
+check.dependsOn acceptanceTest
+
+tasks.withType(Test) {
+
+    useJUnitPlatform()
+
+    reports {
+        junitXml.enabled = true
+        html.enabled = false
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardError'
+    }
+
+    beforeSuite { desc ->
+        if (!desc.parent) { // will match the outermost suite
+            project.logger.info "Running tests on max $maxParallelForks threads"
+        }
+    }
+    afterSuite { desc, result ->
+        if (!desc.parent) { // will match the outermost suite
+            project.logger.info "Results: ${result.resultType} (${result.testCount} tests, ${result.successfulTestCount} passed, ${result.failedTestCount} failed, ${result.skippedTestCount} skipped)"
+        }
+    }
+}
+
+helm {
+    charts {
+        geoip {
+            chartName = project.name
+            chartVersion = project.version
+            sourceDir = file('src/helm')
+        }
+    }
+}
+tasks.helmPackageGeoipChart.dependsOn tasks.jibDockerBuild
+tasks.check.dependsOn tasks.helmLintGeoipChart
+
+tasks.helmPackageGeoipChart.doFirst {
+    copy {
+        from jib.outputPaths.imageJson
+        into helm.charts.geoip.outputDir.get()
+        if (!file(jib.outputPaths.imageJson).exists()) throw new GradleException("${helm.charts.geoip.outputDir.get()} doesn't exist")
+    }
+    helm.charts.geoip.outputDir.get().file('ports.json').asFile.text = groovy.json.JsonOutput.toJson(dockerPorts)
+}
+

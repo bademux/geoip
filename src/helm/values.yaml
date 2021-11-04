@@ -1,0 +1,28 @@
+image:
+  pullPolicy: IfNotPresent
+
+ingress:
+  host: some-url.net
+  annotations:
+    kubernetes.io/ingress.class: nginx
+#    kubernetes.io/tls-acme: "true"
+#  tls:
+#   - secretName: secretname-tls
+#     hosts:
+#       - some-url.net
+
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+
+resources:
+  limits:
+    cpu: 2
+    memory: 512Mi
+  requests:
+    cpu: 200ms
+    memory: 256Mi
